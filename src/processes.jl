@@ -4,7 +4,7 @@ mutable struct JumpProcess <: MarkovProcess
     x # state
     a # propensities
     h # jumps
-    χ # support
+    X # support
 end
 
 mutable struct ReactionProcess <: MarkovProcess
@@ -25,7 +25,7 @@ mutable struct ReactionProcess <: MarkovProcess
         props = reformat_reactions(reactions(rn), spec2idx, x)
         jumps = reformat_jumps(S, spec2idx, x)
         support = intersect([@set(x[i] >= 0) for i in 1:n]...)
-        return new(rn,JumpProcess(x,props,jumps,support),spec2idx, spec2state, state2spec)
+        return new(rn,JumpProcess(x,props,jumps,support), spec2idx, spec2state, state2spec)
     end
 end
 
@@ -33,7 +33,7 @@ mutable struct DiffusionProcess <: MarkovProcess
     x # state
     f # drift
     σ # diffusion matrix
-    χ # support
+    X # support
 end
 
 mutable struct JumpDiffusionProcess <: MarkovProcess
@@ -41,18 +41,59 @@ mutable struct JumpDiffusionProcess <: MarkovProcess
     DiffusionProcess::DiffusionProcess
 end
 
+mutable struct ControlProcess
+    MP::MarkovProcess
+    T # time horizon
+    u # control variables
+    t # time variable
+    U # control set
+    PathChanceConstraints
+    TerminalChanceConstraints
+    Objective
+    discount_factor
+end
+
+mutable struct ExitProbability
+    X
+end
+
+mutable struct TerminalSetProbability
+    X
+end
+
+mutable struct LagrangeMayer
+    l
+    m
+end
+
+mutable struct ChanceConstraint
+    X # semialgebriac set
+    α # confidence level
+end
+
+mutable struct InfoData
+    termination_status
+    solution_time
+end
+
+mutable struct Bounds
+    type
+    order::Int
+    bounds
+    info::InfoData
+end
 
 inf_generator(MP::JumpProcess, p::Polynomial) = sum(MP.a[i]*(subs(p, MP.x => MP.h[i]) - p) for i in 1:length(MP.a))
 inf_generator(MP::ReactionProcess, p::Polynomial) = inf_generator(MP.JumpProcess,p)
 inf_generator(MP::DiffusionProcess, p::Polynomial) = MP.f'*∂(p,MP.x) + 1/2*sum(∂²(p,MP.x,MP.x) .* MP.σ)
 inf_generator(MP::JumpDiffusionProcess, p::Polynomial) = inf_generator(MP.JumpProcess,p) + inf_generator(MP.DiffusionProcess,p)
 extended_inf_generator(MP::MarkovProcess, p::Polynomial, t::PolyVar) = ∂(p,t) + inf_generator(MP, p)
-
+louiville(MP, P, ξ, ϕ, t, Δt) = Mom(split_poly(ϕ, MP.x, Δt), P) - Mom(extended_inf_generator(MP, ϕ, t), ξ)
 function transform_state!(P::JumpProcess, x::AbstractVector, z::AbstractVector; iv::AbstractVector = 1:length(P.x))
     Π = [P.x[i] => z[i] for i in 1:length(P.x)]
     P.a = subs.(P.a, Π...)
     P.h = [subs.(h[iv], Π...) for h in P.h]
-    P.χ = intersect([@set(subs.(p, Π...) >= 0) for p in P.χ.p]...)
+    P.X = intersect([@set(subs.(p, Π...) >= 0) for p in P.X.p]...)
     P.x = x
 end
 
@@ -62,7 +103,6 @@ function transform_state!(P::ReactionProcess, x::AbstractVector, z::AbstractVect
     P.state_to_species = Dict(P.species_to_state[spec] => spec for spec in keys(P.species_to_state))
     transform_state!(P.JumpProcess, x, z; iv = iv)
 end
-
 
 function rescale_state!(P::DiffusionProcess, x0)
     transform_state!(P, P.x, P.x .* x0)

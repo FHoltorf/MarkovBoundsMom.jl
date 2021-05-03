@@ -1,12 +1,19 @@
 module MarkovBounds
-
-using Catalyst, DynamicPolynomials, MomentOpt, JuMP
+using Catalyst, DynamicPolynomials, MultivariateMoments, MomentOpt, JuMP, MosekTools
 import Base: show
-import LinearAlgebra: qr, nullspace
+import LinearAlgebra: qr, nullspace, diag, Diagonal
 import Parameters: @unpack
 
-export MarkovProcess, JumpProcess, ReactionProcess, DiffusionProcess, JumpDiffusionProcess,
-       stationary_gmp, transient_gmp, mean, var
+const DP = DynamicPolynomials
+const MM = MultivariateMoments
+const MO = MomentOpt
+
+export MarkovProcess, JumpProcess, ReactionProcess, DiffusionProcess,
+       JumpDiffusionProcess, ControlProcess, Bounds, ExitProbability,
+       TerminalSetProbability, LagrangeMayer,
+       stationary_gmp, transient_gmp, stationary_mean, transient_mean,
+       transient_variance, stationary_variance, stationary_probability_mass,
+       optimal_control
 
 include("processes.jl")
 include("gmp.jl")
