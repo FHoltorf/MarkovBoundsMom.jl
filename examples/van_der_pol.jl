@@ -29,24 +29,33 @@ bnds, V = optimal_control(CP, x0, order, trange, Mosek.Optimizer; value_function
 
 N = 500
 urange = -1.0:0.05:1.0
-function control_policy(z,s)
+function mpc(z,s)
     one_step_MPC = extended_inf_generator(MP, V(z,s)[1], t)
     u = urange[findmin([one_step_MPC(z..., u, s) for u in urange])[2]]
     return u
 end
-drift(x,p,t) = [f[1](x[2]); f[2](x[1],x[2],control_policy(x[1:2], t))]
+K = -10
+function controller(x)
+    u = min(1, max(-1, K*x[1]*x[2]))
+end
+drift(x,p,t) = [f[1](x[2]), f[2](x[1],x[2],controller(x))]
+drift_mpc(x,p,t) = [f[1](x[2]); f[2](x[1],x[2],mpc(x[1:2], t))]
 drift_uncontrolled(x,p,t) = [f[1](x[2]); f[2](x[1],x[2],0)]
 diffusion(x,p,t) = [0; g[2](x[1])]
 sde = DE.SDEProblem(drift, diffusion, x0, (0.0,Tf))
+sde_mpc = DE.SDEProblem(drift_mpc, diffusion, x0, (0.0,Tf))
 sde_uncontrolled = DE.SDEProblem(drift_uncontrolled, diffusion, x0, (0.0,Tf))
+
 sde_ensemble = DE.EnsembleProblem(sde)
+sde_ensemble_mpc = DE.EnsembleProblem(sde_mpc)
 sde_ensemble_uncontrolled = DE.EnsembleProblem(sde_uncontrolled)
 
 trajectories = DE.solve(sde_ensemble, trajectories=N, EM(), dt = 0.01)
+trajectories_mpc = DE.solve(sde_ensemble_mpc, trajectories=N, EM(), dt = 0.01)
 trajectories_uncontrolled = DE.solve(sde_ensemble_uncontrolled, trajectories=N, EM(), dt = 0.01)
 
-P_uncontrolled = 0
 fig, ax = subplots()
+P_uncontrolled = 0
 for sol in trajectories_uncontrolled
     max_idx = findfirst(m -> m[1]^2 + m[2]^2 > 1, sol.u)
     if max_idx == nothing
@@ -56,11 +65,21 @@ for sol in trajectories_uncontrolled
     ax.plot([sol.u[i][1] for i in 1:max_idx], [sol.u[i][2] for i in 1:max_idx], color="blue", linewidth=0.5)
 end
 
-P_controlled = 0
+P_mpc = 0
 for sol in trajectories
     max_idx = findfirst(m -> m[1]^2 + m[2]^2 > 1, sol.u)
     if max_idx == nothing
-        global P_controlled += 1
+        global P_mpc += 1
+    end
+    max_idx = (max_idx == nothing ? length(sol.u) : max_idx)
+    ax.plot([sol.u[i][1] for i in 1:max_idx], [sol.u[i][2] for i in 1:max_idx], color="green", linewidth=0.5)
+end
+
+P_controller = 0
+for sol in trajectories_mpc
+    max_idx = findfirst(m -> m[1]^2 + m[2]^2 > 1, sol.u)
+    if max_idx == nothing
+        global P_controller += 1
     end
     max_idx = (max_idx == nothing ? length(sol.u) : max_idx)
     ax.plot([sol.u[i][1] for i in 1:max_idx], [sol.u[i][2] for i in 1:max_idx], color="red", linewidth=0.5)
@@ -71,5 +90,6 @@ ax.set_xlabel(L"x_1")
 ax.set_ylabel(L"x_2")
 display(fig)
 
+println("mpc: P(exit) = ", P_mpc/N)
 println("controlled: P(exit) = ", P_controlled/N)
 println("uncontrolled: P(exit) = ", P_uncontrolled/N)
