@@ -224,6 +224,31 @@ function stationary_confidence_ellipsoid(rn::ReactionSystem, x0::Dict, species::
 end
 
 ## Control Processes
+
+function add_PathChanceConstraint!(gmp, cc, test_fxns, Δt, CP)
+    MP = CP.MarkovProcess
+    nt = length(Δt)
+    ∂X = ∂(cc.X)
+    Qₜ = @variable(gmp, [i in 1:nt], Meas(MP.x, support = cc.X)) # residence measure
+    Rₜ = @variable(gmp, [k in 1:length(∂X), i in 1:nt],
+                        Meas([MP.x..., CP.u..., CP.t], support = intersect(∂X[k], @set(CP.t >= 0), @set(CP.t <= Δt[i])))) # exit measure
+    Sₜ = @variable(gmp, [i in 1:nt], Meas([MP.x..., CP.u..., CP.t], support = intersect(CP.ChanceConstraint.X, CP.U, @set(CP.t >= 0), @set(Δt[i] - CP.t >= 0))))
+    @constraint(gmp, [ϕ in test_fxns, i in 1:nt],
+                     louiville(MP,Qₜ[i],Sₜ[i],ϕ,CP.t,Δt[i]) + sum(Mom(ϕ, Rₜ[k,i]) for k in length(∂X)) ==
+                     (i == 1 ? split_poly(ϕ,MP.x,0)(x0...) : Mom(split_poly(ϕ, MP.x, 0), Qₜ[i-1])))
+    @constraint(gmp, [1], Mom(1, Qₜ[nt]) >= 1 - cc.α)
+    Tₜ = @variable(gmp, [i in 1:nt], Meas(MP.x, support = MP.X)) # slack measure
+    @constraint(gmp, [i in 1:nt], Tₜ[i] + Qₜ[i] == gmp[:Pₜ][i])
+end
+
+function add_TerminalChanceConstraint!(gmp, cc, nt, CP)
+    MP = CP.MarkovProcess
+    Q = @variable(gmp, [nt], Meas(MP.x, support = cc.X))
+    S = @variable(gmp, [nt], Meas(MP.x, support = MP.X))
+    @constraint(gmp, [nt], Q[nt] + S[nt] == gmp[:Pₜ][nt])
+    @constraint(gmp, [nt], Mom(1, Q[nt]) >= 1-cc.α)
+end
+
 function control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange::AbstractVector, solver)
     MP = CP.MP
     nt = length(trange)
@@ -231,51 +256,39 @@ function control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange:
     gmp = GMPModel(solver)
     set_approximation_mode(gmp, PRIMAL_RELAXATION_MODE())
     test_fxns = polynomial.(monomials([MP.x..., CP.t], 0:order))
-    #polynomial.(kron(monomials(MP.x, 0:order_x), monomials(CP.t, 1:order_t)))
-    #polynomial.(monomials([MP.x..., CP.t], 0:order_x + order_t, m -> (sum(degree(m, x) for x in MP.x) <= order_x && degree(m, CP.t) <= order_t)))
-    @variable(gmp, Pₜ[i in 1:nt], Meas(MP.x, support = MP.X))
-    @variable(gmp, ξₜ[i in 1:nt], Meas([MP.x..., CP.u..., CP.t], support = intersect(MP.X, CP.U, @set(CP.t >= 0), @set(Δt[i] - CP.t >= 0))))
-    @constraint(gmp, dynamics[ϕ in test_fxns, i in 1:nt],
-                     louiville(MP,Pₜ[i],ξₜ[i],ϕ,CP.t,Δt[i]) == (i == 1 ? split_poly(ϕ,MP.x,0)(x0...) : Mom(split_poly(ϕ, MP.x, 0), Pₜ[i-1])))
+    if typeof(CP.Objective) == LagrangeMayer ||  typeof(CP.Objective) == TerminalSetProbability
+        @variable(gmp, Pₜ[i in 1:nt], Meas(MP.x, support = MP.X))
+        @variable(gmp, ξₜ[i in 1:nt], Meas([MP.x..., CP.u..., CP.t], support = intersect(MP.X, CP.U, @set(CP.t >= 0), @set(Δt[i] - CP.t >= 0))))
+        @constraint(gmp, dynamics[ϕ in test_fxns, i in 1:nt],
+                         louiville(MP,Pₜ[i],ξₜ[i],ϕ,CP.t,Δt[i]) == (i == 1 ? split_poly(ϕ,MP.x,0)(x0...) : Mom(split_poly(ϕ, MP.x, 0), Pₜ[i-1])))
 
-    # chance constraints
-    if !isnothing(CP.PathChanceConstraints)
-        for cc in CP.PathChanceConstraints
-            ∂X = ∂(cc.X)
-            Qₜ = @variable(gmp, [i in 1:nt], Meas(MP.x, support = cc.X)) # residence measure
-            Rₜ = @variable(gmp, [k in 1:length(∂X), i in 1:nt],
-                                Meas([MP.x..., CP.u..., CP.t], support = intersect(∂X[k], @set(CP.t >= 0), @set(CP.t <= Δt[i])))) # exit measure
-            Sₜ = @variable(gmp, [i in 1:nt], Meas([MP.x..., CP.u..., CP.t], support = intersect(CP.ChanceConstraint.X, CP.U, @set(CP.t >= 0), @set(Δt[i] - CP.t >= 0))))
-            @constraint(gmp, [ϕ in test_fxns, i in 1:nt],
-                             louiville(MP,Qₜ[i],Sₜ[i],ϕ,CP.t,Δt[i]) + sum(Mom(ϕ, Rₜ[k,i]) for k in length(∂X)) ==
-                             (i == 1 ? split_poly(ϕ,MP.x,0)(x0...) : Mom(split_poly(ϕ, MP.x, 0), Qₜ[i-1])))
-            @variable(gmp, [1], Mom(1, Qₜ[nt]) >= 1 - cc.α)
+        if !isnothing(CP.PathChanceConstraints)
+            for cc in CP.PathChanceConstraints
+                add_PathChanceConstraint(gmp, cc, test_fxns, Δt, CP)
+            end
         end
-    end
 
-    if !isnothing(CP.TerminalChanceConstraints)
-        for cc in CP.TerminalChanceConstraints
-            Q = @variable(gmp, [nt], Meas(MP.x, support = cc.X))
-            S = @variable(gmp, [nt], Meas(MP.x, support = MP.X))
-            @constraint(gmp, [1], Q[nt] + S[nt] == Pₜ[nt])
-            @constraint(gmp, [1], Mom(1, Q[nt]) >= 1-cc.α)
+        if !isnothing(CP.TerminalChanceConstraints)
+            for cc in CP.TerminalChanceConstraints
+                add_TerminalChanceConstraint!(gmp, cc, nt, CP)
+            end
         end
-    end
 
-    if typeof(CP.Objective) == LagrangeMayer
-        @objective(gmp, Min, sum(Mom(CP.Objective.l, gmp[:ξₜ][i]) for i in 1:nt) + Mom(CP.Objective.m, gmp[:Pₜ][end]))
-    elseif typeof(CP.Objective) == TerminalSetProbability
-        Q = @variable(gmp, [nt], Meas(CP.Objective.l, support = CP.Objective.X))
-        R = @variable(gmp, [nt], Meas(CP.MP, support = MP.X))
-        @constraint(gmp, R[nt] + Q[nt] == Pₜ[nt])
-        @objective(gmp, Max, Mom(1, Q[nt]))
+        if typeof(CP.Objective) == LagrangeMayer
+            @objective(gmp, Min, sum(Mom(CP.Objective.l, gmp[:ξₜ][i]) for i in 1:nt) + Mom(CP.Objective.m, gmp[:Pₜ][end]))
+        else
+            Q = @variable(gmp, [nt], Meas(CP.Objective.l, support = CP.Objective.X))
+            R = @variable(gmp, [nt], Meas(CP.MP, support = MP.X))
+            @constraint(gmp, R[nt] + Q[nt] == Pₜ[nt])
+            @objective(gmp, Max, Mom(1, Q[nt]))
+        end
     elseif typeof(CP.Objective) == ExitProbability
         ∂X = ∂(CP.Objective.X)
-        Qₜ = @variable(gmp, [i in 1:nt], Meas(CP.Objective.l, support = CP.Objective.X))
+        Qₜ = @variable(gmp, [i in 1:nt], Meas(MP.x, support = CP.Objective.X))
         Rₜ = @variable(gmp, [k in 1:length(∂X), i in 1:nt],
-                            Meas([MP.x..., MP.u, CP.t], support = intersect(∂X[k], @set(CP.t >= 0), @set(CP.t <= Δt[i]))))
-        Sₜ = @variable(gmp, [i in 1:nt], Meas([MP.x..., CP.u, CP.t], support = intersect(CP.Objective.X, CP.U, @set(t >= 0), @set(Δt[i] - t >= 0))))
-        @constraint(gmp, [ϕ in test_fxns, i in 1:nt],
+                            Meas([MP.x..., CP.t], support = intersect(∂X[k], @set(CP.t >= 0), @set(CP.t <= Δt[i]))))
+        Sₜ = @variable(gmp, [i in 1:nt], Meas([MP.x..., CP.u..., CP.t], support = intersect(CP.Objective.X, CP.U, @set(CP.t >= 0), @set(CP.t <= Δt[i]))))
+        @constraint(gmp, dynamics[ϕ in test_fxns, i in 1:nt],
                          louiville(MP,Qₜ[i],Sₜ[i],ϕ,CP.t,Δt[i]) + sum(Mom(ϕ, Rₜ[k,i]) for k in length(∂X)) ==
                          (i == 1 ? split_poly(ϕ,MP.x,0)(x0...) : Mom(split_poly(ϕ, MP.x, 0), Qₜ[i-1])))
         @objective(gmp, Max, Mom(1, Qₜ[nt]))
