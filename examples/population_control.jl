@@ -34,7 +34,7 @@ bnds, V = optimal_control(CP, x0, order, trange, Mosek.Optimizer; value_function
 N = 100
 urange = 0:0.05:1.0
 function control_policy(z,s)
-    one_step_MPC = MarkovBounds.extended_inf_generator(MP, V(z,s)[1], t) + lagrange
+    one_step_MPC = extended_inf_generator(MP, V(z,s)[1], t) + lagrange
     u = urange[findmin([one_step_MPC(z..., u, s) for u in urange])[2]]
     return u
 end
@@ -46,8 +46,8 @@ sde_uncontrolled = DE.SDEProblem(drift_uncontrolled, diffusion, [x0..., 0], (0.0
 sde_ensemble = DE.EnsembleProblem(sde)
 sde_ensemble_uncontrolled = DE.EnsembleProblem(sde_uncontrolled)
 
-trajectories = DE.solve(sde_ensemble, trajectories=N)
-trajectories_uncontrolled = DE.solve(sde_ensemble_uncontrolled, trajectories=N)
+trajectories = DE.solve(sde_ensemble, trajectories=N, EM(), dt = 0.01)
+trajectories_uncontrolled = DE.solve(sde_ensemble_uncontrolled, trajectories=N, EM(), dt = 0.01)
 
 fig, ax = subplots(3,1)
 for sol in trajectories_uncontrolled
