@@ -22,4 +22,5 @@ export MarkovProcess, JumpProcess, ReactionProcess, DiffusionProcess,
 include("processes.jl")
 include("gmp.jl")
 include("utils.jl")
+include("distributed.jl")
 end

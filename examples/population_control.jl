@@ -30,7 +30,6 @@ CP = ControlProcess(MP, Tf, u, t, @set(u[1] >= 0 && u[1] <= 1), nothing, nothing
 
 bnds, V = optimal_control(CP, x0, order, trange, Mosek.Optimizer; value_function = true)
 
-
 N = 100
 urange = 0:0.05:1.0
 function control_policy(z,s)
