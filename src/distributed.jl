@@ -22,47 +22,74 @@ function invert_index(idx, rs)
 end
 
 function grid_graph(x, lb, ub, n; inf_top = zeros(Int64, length(ub)), inf_floor = zeros(Int64, length(lb)))
+    degen_dim = []
+    nondegen_dim = []
+    for k in 1:length(n)
+        if n[k] == 1
+            push!(degen_dim, k)
+        else
+            push!(nondegen_dim, k)
+        end
+    end
     n_eff = n .- inf_top .- inf_floor
     Δx = zeros(length(n))
-    for k in 1:length(n)
+    for k in nondegen_dim
         if n_eff[k] == 0
             lb[k] = (lb[k] + ub[k])/2
             ub[k] = lb[k]
-            Δx[k] = 0
+            Δx[k] = 1.0
         else
             Δx[k] = (ub[k] - lb[k]) / n_eff[k]
         end
     end
+
     nv = prod(n)
     mg = MetaGraph(SimpleGraph(nv))
     for i in 1:nv
         idx = invert_index(i, n)
         subset = FullSpace()
-        for k in 1:length(n)
-            if n_eff[k] >= 0
-                if inf_top[k] == 1 && idx[k] == n[k]
-                    subset = intersect(subset, @set(x[k] >= ub[k]))
-                elseif inf_floor[k] == 1 && idx[k] == 1
-                    subset = intersect(subset, @set(x[k] <= lb[k]))
-                else
-                    subset = intersect(subset, @set(x[k] >= lb[k] + (idx[k]-1)*Δx[k] && x[k] <= lb[k] + idx[k]*Δx[k]))
-                end
+        for k in nondegen_dim
+            if inf_top[k] == 1 && idx[k] == n[k]
+                subset = intersect(subset, @set(x[k] >= ub[k]))
+            elseif inf_floor[k] == 1 && idx[k] == 1
+                subset = intersect(subset, @set(x[k] <= lb[k]))
+            else
+                subset = intersect(subset, @set(x[k] >= lb[k] + (idx[k]-inf_floor[k]-1)*Δx[k] && x[k] <= lb[k] + (idx[k]-inf_floor[k])*Δx[k]))
+            end
+        end
+        for k in degen_dim
+            if inf_top[k] == 0
+                subset = intersect(subset, @set(x[k] <= ub[k]))
+            end
+            if inf_floor[k] == 0
+                subset = intersect(subset, @set(x[k] >= lb[k]))
             end
         end
         set_prop!(mg, i, :cell, subset)
-        for k in 1:length(n)
-            if idx[k] < n[k] && n_eff[k] >= 0
+        for k in nondegen_dim
+            if idx[k] < n[k]
                 idx[k] += 1
                 j = linearize_index(idx, n)
                 add_edge!(mg, i, j)
-                #set_prop!(mg, Edge(i,j), :overlap, get_face(subset, - x[k] + (lb[k] + (idx[k]-1)*Δx[k]), [x[k] - (lb[k] + (idx[k] - 2)*Δx[k])]))
-                set_prop!(mg, Edge(i,j), :interface, (k, lb[k] + (idx[k]-1)*Δx[k]))
+                set_prop!(mg, Edge(i,j), :interface, (k, lb[k] + (idx[k]-1-inf_floor[k])*Δx[k]))
                 idx[k] -= 1
             end
         end
     end
-    return mg, x -> linearize_index(min.(floor.(Int64, x ./Δx) .+ 1, n), n)
+    get_vertex = function (x)
+                    idx = ones(Int64,length(n))
+                    for k in nondegen_dim
+                        if inf_floor[k] == 1
+                            idx[k] = x[k] <= lb[k] ? 1 : min(ceil(Int64, (x[k] - lb[k])/Δx[k]) + 1, n[k])
+                        else
+                            idx[k] = min(floor(Int64, (x[k] - lb[k])/Δx[k]) + 1, n[k])
+                        end
+                    end
+                    return linearize_index(idx, n)
+                 end
+    return mg, get_vertex
 end
+
 
 #=
 function get_face(subset, poly, obs_polys = [])
@@ -84,11 +111,12 @@ function control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange:
     for v in vertices(p.graph), k in 1:nₜ
         lhs = extended_inf_generator(MP, w[v,k], CP.t) + CP.Objective.l
         X = props(p.graph, v)[:cell]
-        coeffs = cat(X.p, [CP.t, Δt[k]-CP.t], CP.U.p, dims = 1)
+        #coeffs = typeof(X) == FullSpace ? cat([CP.t, Δt[k]-CP.t], CP.U.p, dims = 1) : cat(X.p, [CP.t, Δt[k]-CP.t], CP.U.p, dims = 1)
+        coeffs = intersect(X, @set(CP.t >= 0 && Δt[k]-CP.t >= 0), CP.U)
         d_lhs = maxdegree(lhs)
         mons = monomials([MP.x...,CP.u...,CP.t], 0:ceil(Int64, d_lhs/2))
         rhs = @variable(model, [1], SOSPoly(mons))[1]
-        for c in coeffs
+        for c in coeffs.p
             d_rhs = ceil(Int64, (d_lhs - maxdegree(c))/2)
             mons = monomials([MP.x...,CP.u...,CP.t], 0:d_rhs)
             sos = @variable(model, [1], SOSPoly(mons))[1]
@@ -103,11 +131,13 @@ function control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange:
         mons = monomials(MP.x, 0:ceil(Int64, d_lhs/2))
         rhs = @variable(model, [1], SOSPoly(mons))[1]
         X = props(p.graph, v)[:cell]
-        for c in X.p
-            d_rhs = ceil(Int64, (d_lhs - maxdegree(c))/2)
-            mons = monomials(MP.x, 0:d_rhs)
-            sos = @variable(model, [1], SOSPoly(mons))[1]
-            rhs += c*sos
+        if typeof(X) != FullSpace
+            for c in X.p
+                d_rhs = ceil(Int64, (d_lhs - maxdegree(c))/2)
+                mons = monomials(MP.x, 0:d_rhs)
+                sos = @variable(model, [1], SOSPoly(mons))[1]
+                rhs += c*sos
+            end
         end
         @constraint(model, lhs == rhs)
     end
@@ -123,11 +153,13 @@ function control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange:
         d_lhs = maxdegree(lhs)
         mons = monomials(MP.x, 0:ceil(Int64, d_lhs/2))
         rhs = @variable(model, [1], SOSPoly(mons))[1]
-        for c in X.p
-            d_rhs = ceil(Int64, (d_lhs - maxdegree(c))/2)
-            mons = monomials(MP.x, 0:d_rhs)
-            sos = @variable(model, [1], SOSPoly(mons))[1]
-            rhs += c*sos
+        if typeof(X) != FullSpace
+            for c in X.p
+                d_rhs = ceil(Int64, (d_lhs - maxdegree(c))/2)
+                mons = monomials(MP.x, 0:d_rhs)
+                sos = @variable(model, [1], SOSPoly(mons))[1]
+                rhs += c*sos
+            end
         end
         @constraint(model, CP.Objective.m - lhs == rhs)
     end
