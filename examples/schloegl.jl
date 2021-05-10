@@ -1,4 +1,4 @@
-using MosekTools, Catalyst, Plots, MarkovBounds
+using MosekTools, PyPlot, MarkovBounds
 # use Catalyst to define the reaction network under consideration
 # in this case, we investigate Schlögel's system
 rn = @reaction_network begin
@@ -19,18 +19,25 @@ sol = Dict()
 for m in orders
     sol[m] = stationary_mean(rn, [X], x0, m, Mosek.Optimizer, auto_scaling = false, scales = x_scale)
 end
-p = Plots.plot(orders, [sol[m].bounds[X][1] for m in orders], label="lower bound", xlabel = "truncation order", ylabel = "⟨X∞⟩")
-plot!(p, orders, [sol[m].bounds[X][2] for m in orders], label="upper bound", legend = :bottomright)
-display(p)
+fig, ax = subplots()
+ax.plot(orders, [sol[m].bounds[X][1] for m in orders], marker="*", color="blue", label="lower bound")
+ax.plot(orders, [sol[m].bounds[X][2] for m in orders], marker="*", color="red", label="upper bound")
+ax.set_xlabel("truncation order")
+ax.set_ylabel(L"⟨X_{\infty}⟩")
+ax.legend()
+display(fig)
 
 # same for variance
 sol = Dict()
 for m in orders
     sol[m] = stationary_variance(rn, [X], x0, m, Mosek.Optimizer, auto_scaling = false, scales = x_scale)
 end
-p = Plots.plot(xlabel="truncation order", ylabel=string("Var(X∞)"), legend = :right)
-plot!(p, orders, [sol[m].bounds[X] for m in orders], color = :red, label="upper bound")
-display(p)
+fig, ax = subplots()
+ax.plot(orders, [sol[m].bounds[X] for m in orders], marker="*", color="red", label="upper bound")
+ax.set_xlabel("truncation order")
+ax.set_ylabel(L"⟨X_{\infty}⟩")
+ax.legend()
+display(fig)
 
 # transient moments
 nT = 10
@@ -44,10 +51,13 @@ for Tf in Tf_range
     sol = transient_mean(rn, [X], x0, order, trange, Mosek.Optimizer, scales = x_scale)
     push!(traj, sol)
 end
-p = Plots.plot(xlabel="time", ylabel="⟨X⟩", legend = :right)
-plot!(p, Tf_range, [sol.bounds[X][1] for sol in traj], color = :red, label = "lower bound")
-plot!(p, Tf_range, [sol.bounds[X][2] for sol in traj], color = :blue, label = "upper bound")
-display(p)
+fig, ax = subplots()
+ax.plot(Tf_range, [sol.bounds[X][1] for sol in traj], color="blue", label="lower bound")
+ax.plot(Tf_range, [sol.bounds[X][2] for sol in traj], color="red", label="upper bound")
+ax.set_xlabel("time")
+ax.set_ylabel(L"⟨X⟩")
+ax.legend()
+display(fig)
 
 # variance
 traj = []
@@ -56,6 +66,9 @@ for Tf in Tf_range
     sol = transient_variance(rn, [X], x0, order, trange, Mosek.Optimizer, scales =  x_scale)
     push!(traj, sol)
 end
-p = Plots.plot(xlabel="time", ylabel=string("Var(X)"), legend = :right)
-plot!(p, Tf_range, [sol.bounds[X][1] for sol in traj], color = :red, label = "lower bound")
-display(p)
+fig, ax = subplots()
+ax.plot(Tf_range, [sol.bounds[X][1] for sol in traj], color="red", label="upper bound")
+ax.set_xlabel("time")
+ax.set_ylabel(L"Var(X)")
+ax.legend()
+display(fig)

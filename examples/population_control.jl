@@ -1,4 +1,4 @@
-using DynamicPolynomials, MosekTools, MomentOpt, DifferentialEquations, PyPlot, LaTeXStrings, MarkovBounds
+using MosekTools, DifferentialEquations, PyPlot, LaTeXStrings, MarkovBounds
 DE = DifferentialEquations
 @polyvar(x[1:2])
 @polyvar(u[1:1])
@@ -48,19 +48,21 @@ sde_ensemble_uncontrolled = DE.EnsembleProblem(sde_uncontrolled)
 trajectories = DE.solve(sde_ensemble, trajectories=N, EM(), dt = 0.01)
 trajectories_uncontrolled = DE.solve(sde_ensemble_uncontrolled, trajectories=N, EM(), dt = 0.01)
 
-fig, ax = subplots(3,1)
+fig, ax = subplots(3,1,figsize=(10,12))
 for sol in trajectories_uncontrolled
-    ax[1].plot(sol.t, [u[1] for u in sol.u], color="blue", linewidth=0.5)
+    global ln_uc = ax[1].plot(sol.t, [u[1] for u in sol.u], color="blue", linewidth=0.5)
     ax[2].plot(sol.t, [u[2] for u in sol.u], color="blue", linewidth=0.5)
     ax[3].plot([u[1] for u in sol.u], [u[2] for u in sol.u], color = "blue", linewidth=0.5)
 end
+
 for sol in trajectories
-    ax[1].plot(sol.t, [u[1] for u in sol.u], color="red", linewidth=0.5)
+    global ln_c = ax[1].plot(sol.t, [u[1] for u in sol.u], color="red", linewidth=0.5)
     ax[2].plot(sol.t, [u[2] for u in sol.u], color="red", linewidth=0.5)
     ax[3].plot([u[1] for u in sol.u], [u[2] for u in sol.u], color = "red", linewidth=0.5)
 end
 ax[1].plot([0,Tf], [x_target[1], x_target[1]], color="k", linewidth=1, linestyle="dashed")
 ax[2].plot([0,Tf], [x_target[2], x_target[2]], color="k", linewidth=1, linestyle="dashed")
+ax[1].legend([ln_uc[1], ln_c[1]], ["uncontrolled","controlled"])
 ax[2].set_xlabel("time [s]")
 ax[1].set_ylabel(L"x_1")
 ax[2].set_ylabel(L"x_2")

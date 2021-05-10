@@ -1,4 +1,4 @@
-using Catalyst, LaTeXStrings, MosekTools, MarkovBounds
+using LaTeXStrings, PyPlot, MosekTools, MarkovBounds
 # use Catalyst to define the reaction network under consideration
 # in this case, we investigate simple Michaelis-Menten kinetics
 rn = @reaction_network begin
@@ -18,27 +18,34 @@ sol = Dict()
 for m in orders
     sol[m] = stationary_mean(rn, [S,P], x0, m, Mosek.Optimizer, auto_scaling = false, scales = x_scales)
 end
-ps = []
+
+
 for s in [S, P]
-    p = Plots.plot(xlabel="truncation order", ylabel=string("⟨",s.f.name,"∞⟩"), legend = :right)
-    plot!(p, orders, [sol[m].bounds[s][1] for m in orders], color = :red, label="lower bound")
-    plot!(p, orders, [sol[m].bounds[s][2] for m in orders], color = :blue, label="upper bound")
-    push!(ps, p)
+    fig, ax = subplots()
+    ax.plot(orders, [sol[m].bounds[s][1] for m in orders], marker = "*", color="blue", label="lower bound")
+    ax.plot(orders, [sol[m].bounds[s][2] for m in orders], marker = "*", color="red", label="upper bound")
+    ax.set_xlabel("truncation order")
+    ax.set_ylabel(string(L"⟨",s.f.name,L"_{\infty}⟩"))
+    ax.legend()
+    display(fig)
 end
-Plots.plot(ps...)
+
+
 
 # same for variance
 sol = Dict()
 for m in orders
     sol[m] = stationary_variance(rn, [S,P], x0, m, Mosek.Optimizer, auto_scaling = false, scales = x_scales)
 end
-ps = []
+
 for s in [S, P]
-    p = Plots.plot(xlabel="truncation order", ylabel=string("Var(",s.f.name,"∞)"), legend = :right)
-    plot!(p, orders, [sol[m].bounds[s] for m in orders], color = :blue, label="upper bound")
-    push!(ps, p)
+    fig, ax = subplots()
+    ax.plot(orders, [sol[m].bounds[s] for m in orders], marker = "*", color="red", label="upper bound")
+    ax.set_xlabel("truncation order")
+    ax.set_ylabel(string(L"Var(",s.f.name,L"_{\infty})"))
+    ax.legend()
+    display(fig)
 end
-Plots.plot(ps...)
 
 # transient moments
 nT = 5
@@ -52,14 +59,15 @@ for Tf in Tf_range
     push!(traj, sol)
 end
 
-ps = []
 for s in [S,P]
-    plt = Plots.plot(xlabel="time", ylabel=string("⟨", s.f.name,"⟩"), legend = :right)
-    plot!(plt, Tf_range, [sol.bounds[s][1] for sol in traj], color = :red, label = "lower bound")
-    plot!(plt, Tf_range, [sol.bounds[s][2] for sol in traj], color = :blue, label = "upper bound")
-    push!(ps, plt)
+    fig, ax = subplots()
+    ax.plot(Tf_range, [sol.bounds[s][1] for sol in traj], color="blue", label = "lower bound")
+    ax.plot(Tf_range, [sol.bounds[s][2] for sol in traj], color="red", label = "upper bound")
+    ax.set_xlabel("time")
+    ax.set_ylabel(string(L"⟨", s.f.name,L"⟩"))
+    ax.legend()
+    display(fig)
 end
-Plots.plot(ps...)
 
 # variance
 nT = 5
@@ -75,18 +83,24 @@ end
 
 ps = []
 for s in [P]
-    plt = Plots.plot(xlabel="time", ylabel=string("Var(",s,")"), legend = :right)
-    plot!(plt, Tf_range, [sol.bounds[s][1] for sol in traj], color = :red, label = "lower bound")
-    push!(ps, plt)
+    fig, ax = subplots()
+    ax.plot(Tf_range, [sol.bounds[s][1] for sol in traj], color="red", label = "upper bound")
+    ax.set_xlabel("time")
+    ax.set_ylabel(string(L"Var(", s.f.name,L")"))
+    ax.legend()
+    display(fig)
 end
-Plots.plot(ps...)
-
 
 ## volume of confidence ellipsoid
 orders = 2:8
 sol = Dict()
 for m in orders
-    sol[m] = MarkovBounds.stationary_confidence_ellipsoid(rn, x0, [S,P], m, Mosek.Optimizer; scales = x_scales)
+    sol[m] = stationary_confidence_ellipsoid(rn, x0, [S,P], m, Mosek.Optimizer; scales = x_scales)
 end
 
-plt = plot(orders, [sol[m].bounds[[S,P]] for m in orders], xlabel="order", ylabel="Volume of S-P confidence ellipsoids")
+fig, ax = subplots()
+ax.plot(orders, [sol[m].bounds[[S,P]] for m in orders], marker="*", color="red", label = "upper bound")
+ax.set_xlabel("order")
+ax.set_ylabel("Volume of S-P confidence ellipsoids")
+ax.legend()
+display(fig)

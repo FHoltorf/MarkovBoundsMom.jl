@@ -1,6 +1,6 @@
 using LightGraphs, MetaGraphs, SumOfSquares
 
-export grid_graph, Partition
+export grid_graph, Partition, props
 
 struct Partition
     graph
@@ -90,6 +90,46 @@ function grid_graph(x, lb, ub, n; inf_top = zeros(Int64, length(ub)), inf_floor 
     return mg, get_vertex
 end
 
+function grid_graph(x, x_ranges...)
+    n = length.(x_ranges) .- 1
+    nv = prod(n)
+
+    mg = MetaGraph(SimpleGraph(nv))
+    for i in 1:nv
+        idx = invert_index(i, n)
+        subset = FullSpace()
+        for k in 1:length(idx)
+            if !isinf(x_range[k][idx[k]])
+                subset = intersect(subset, @set(x[k] >= x_range[k][idx[k]]))
+            end
+            if !isinf(x_range[k][idx[k]+1])
+                subset = intersect(subset, @set(x[k] <= x_range[k][idx[k]+1]))
+            end
+        end
+        set_prop!(mg, i, :cell, subset)
+        for k in 1:lengh(idx)
+            if idx[k] < n[k]
+                idx[k] += 1
+                j = linearize_index(idx, n)
+                add_edge!(mg, i, j)
+                set_prop!(mg, Edge(i,j), :interface, (k, x_ranges[k][idx[k]]))
+                idx[k] -= 1
+            end
+        end
+    end
+    get_vertex = function (x)
+                    idx = zeros(Int64, length(n))
+                    for k in 1:length(n)
+                        j = findfirst(m -> m >= x[k], x_range[k]) - 1
+                        if isnothing(j)
+                            @error "state outside domain"
+                        end
+                        idx[k] = max(j, 1)
+                    end
+                    return linearize_index(idx, n)
+                 end
+    return mg, get_vertex
+end
 
 #=
 function get_face(subset, poly, obs_polys = [])

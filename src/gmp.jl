@@ -146,7 +146,7 @@ function transient_variance(MP::MarkovProcess, states::AbstractVector, x0::Abstr
     end
     gmp = transient_gmp(MP, x0, order, trange, solver)
     model, measures = build_approximate_model(gmp, approximation_mode(gmp))
-    set_optimizer(model, Mosek.Optimizer)
+    set_optimizer(model, solver)
     P = measures[idx]
     res = Dict()
     for s in states

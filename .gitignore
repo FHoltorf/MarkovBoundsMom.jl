@@ -1,3 +1,4 @@
 *.pdf
 tests/
 src/todo.jl
+polished/
