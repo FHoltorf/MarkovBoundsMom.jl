@@ -29,8 +29,3 @@ include("gmp.jl")
 include("utils.jl")
 include("distributed.jl")
 end
-
-#MarkovBounds.@polyvar(x[1:2])
-#MarkovBounds.@set(x[1] >= 1.0)
-
-#MarkovBounds.GMPModel()

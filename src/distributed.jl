@@ -90,8 +90,8 @@ function grid_graph(x, lb, ub, n; inf_top = zeros(Int64, length(ub)), inf_floor 
     return mg, get_vertex
 end
 
-function grid_graph(x, x_ranges...)
-    n = length.(x_ranges) .- 1
+function grid_graph(x, x_ranges)
+    n = length.(xranges) .- 1
     nv = prod(n)
 
     mg = MetaGraph(SimpleGraph(nv))
@@ -99,15 +99,15 @@ function grid_graph(x, x_ranges...)
         idx = invert_index(i, n)
         subset = FullSpace()
         for k in 1:length(idx)
-            if !isinf(x_range[k][idx[k]])
-                subset = intersect(subset, @set(x[k] >= x_range[k][idx[k]]))
+            if !isinf(x_ranges[k][idx[k]])
+                subset = intersect(subset, @set(x[k] >= x_ranges[k][idx[k]]))
             end
-            if !isinf(x_range[k][idx[k]+1])
-                subset = intersect(subset, @set(x[k] <= x_range[k][idx[k]+1]))
+            if !isinf(x_ranges[k][idx[k]+1])
+                subset = intersect(subset, @set(x[k] <= x_ranges[k][idx[k]+1]))
             end
         end
         set_prop!(mg, i, :cell, subset)
-        for k in 1:lengh(idx)
+        for k in 1:length(idx)
             if idx[k] < n[k]
                 idx[k] += 1
                 j = linearize_index(idx, n)
@@ -120,7 +120,7 @@ function grid_graph(x, x_ranges...)
     get_vertex = function (x)
                     idx = zeros(Int64, length(n))
                     for k in 1:length(n)
-                        j = findfirst(m -> m >= x[k], x_range[k]) - 1
+                        j = findfirst(m -> m >= x[k], x_ranges[k]) - 1
                         if isnothing(j)
                             @error "state outside domain"
                         end
@@ -131,12 +131,6 @@ function grid_graph(x, x_ranges...)
     return mg, get_vertex
 end
 
-#=
-function get_face(subset, poly, obs_polys = [])
-    return basicsemialgebraicset(algebraicset([poly]), [p for p in subset.p if !(p in obs_polys) && p != poly])
-end
-=#
-
 function control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange::AbstractVector, p::Partition, solver)
     @assert typeof(CP.Objective) == LagrangeMayer
 
@@ -144,65 +138,28 @@ function control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange:
     nₜ = length(trange)
     Δt = [trange[1], [trange[i] - trange[i-1] for i in 2:nₜ]...]
 
-    model = Model(solver)
+    model = SOSModel(solver)
 
-    mons_xt = monomials([MP.x...,CP.t], 0:order)
-    @variable(model, w[vertices(p.graph), k in 1:nₜ], Poly(mons_xt))
+    @variable(model, w[vertices(p.graph), k in 1:nₜ], Poly(monomials([MP.x..., CP.t], 0:order)))
+
     for v in vertices(p.graph), k in 1:nₜ
-        lhs = extended_inf_generator(MP, w[v,k], CP.t) + CP.Objective.l
-        X = props(p.graph, v)[:cell]
-        #coeffs = typeof(X) == FullSpace ? cat([CP.t, Δt[k]-CP.t], CP.U.p, dims = 1) : cat(X.p, [CP.t, Δt[k]-CP.t], CP.U.p, dims = 1)
-        coeffs = intersect(X, @set(CP.t >= 0 && Δt[k]-CP.t >= 0), CP.U)
-        d_lhs = maxdegree(lhs)
-        mons = monomials([MP.x...,CP.u...,CP.t], 0:ceil(Int64, d_lhs/2))
-        rhs = @variable(model, [1], SOSPoly(mons))[1]
-        for c in coeffs.p
-            d_rhs = ceil(Int64, (d_lhs - maxdegree(c))/2)
-            mons = monomials([MP.x...,CP.u...,CP.t], 0:d_rhs)
-            sos = @variable(model, [1], SOSPoly(mons))[1]
-            rhs += c*sos
-        end
-        @constraint(model, lhs == rhs)
+        X = intersect(props(p.graph, v)[:cell], @set(CP.t >= 0 && Δt[k]-CP.t >= 0), CP.U)
+        @constraint(model, extended_inf_generator(MP, w[v,k], CP.t) + CP.Objective.l >= 0, domain = X)
     end
 
     for v in vertices(p.graph), k in 2:nₜ
-        lhs = subs(w[v,k], CP.t => 0) - subs(w[v,k-1], CP.t => Δt[k])
-        d_lhs = maxdegree(lhs)
-        mons = monomials(MP.x, 0:ceil(Int64, d_lhs/2))
-        rhs = @variable(model, [1], SOSPoly(mons))[1]
-        X = props(p.graph, v)[:cell]
-        if typeof(X) != FullSpace
-            for c in X.p
-                d_rhs = ceil(Int64, (d_lhs - maxdegree(c))/2)
-                mons = monomials(MP.x, 0:d_rhs)
-                sos = @variable(model, [1], SOSPoly(mons))[1]
-                rhs += c*sos
-            end
-        end
-        @constraint(model, lhs == rhs)
+        @constraint(model, subs(w[v,k], CP.t => 0) - subs(w[v,k-1], CP.t => Δt[k]) >= 0, domain=props(p.graph, v)[:cell])
     end
 
     for e in edges(p.graph), k in 1:nₜ
-        v, val = props(p.graph, e)[:interface]
-        @constraint(model, subs(w[e.src,k] - w[e.dst,k], MP.x[v] => val) == 0)
+        i, val = props(p.graph, e)[:interface]
+        @constraint(model, subs(w[e.src,k] - w[e.dst,k], MP.x[i] => val) == 0)
     end
 
     for v in vertices(p.graph)
-        lhs = subs(w[v,nₜ], CP.t => Δt[nₜ])
-        X = props(p.graph, v)[:cell]
-        d_lhs = maxdegree(lhs)
-        mons = monomials(MP.x, 0:ceil(Int64, d_lhs/2))
-        rhs = @variable(model, [1], SOSPoly(mons))[1]
-        if typeof(X) != FullSpace
-            for c in X.p
-                d_rhs = ceil(Int64, (d_lhs - maxdegree(c))/2)
-                mons = monomials(MP.x, 0:d_rhs)
-                sos = @variable(model, [1], SOSPoly(mons))[1]
-                rhs += c*sos
-            end
-        end
-        @constraint(model, CP.Objective.m - lhs == rhs)
+        @constraint(model, CP.Objective.m - subs(w[v,nₜ], CP.t => Δt[nₜ]) >= 0, domain = props(p.graph, v)[:cell])
     end
+
     @objective(model, Max, w[p.get_vertex(x0),1](x0..., 0))
     return model
 end
@@ -219,7 +176,7 @@ function optimal_control(CP::ControlProcess, x0::AbstractVector, order::Int, tra
 end
 
 function value_function_approximation(gmp, p::Partition, t, trange)
-    V_pieces = Dict((k, i) => subs(value(gmp[:w][k,i]), t => t - (i > 1 ? t - trange[i] : 0)) for k in vertices(p.graph), i in 1:length(trange))
+    V_pieces = Dict((k, i) => subs(value(gmp[:w][k,i]), t => t - (i > 1 ? trange[i] : 0)) for k in vertices(p.graph), i in 1:length(trange))
     V = function (x,t)
             if t > trange[end] || t < 0
                 @warn string("t = ", t, " outside the domain of V")
