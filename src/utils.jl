@@ -48,7 +48,9 @@ function stoich_bounds(rn::ReactionSystem, x0::Dict, solver)
     return scales
 end
 
+extract_primal_solution(gmp::GMPModel) = objective_value(gmp), termination_status(gmp), MOI.get(gmp.approximation_model, MOI.SolveTime())
 extract_solution(gmp::GMPModel) = dual_objective_value(gmp), dual_status(gmp), MOI.get(gmp.approximation_model, MOI.SolveTime())
+extract_primal_solution(model::Model) = objective_value(model), termination_status(model), MOI.get(model, MOI.SolveTime())
 extract_solution(model::Model) = dual_objective_value(model), dual_status(model), MOI.get(model, MOI.SolveTime())
 
 function remap_states!(P::ReactionProcess, bnds::Bounds)

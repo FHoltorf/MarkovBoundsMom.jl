@@ -87,8 +87,8 @@ inf_generator(MP::JumpProcess, p::Polynomial) = sum(MP.a[i]*(subs(p, MP.x => MP.
 inf_generator(MP::ReactionProcess, p::Polynomial) = inf_generator(MP.JumpProcess,p)
 inf_generator(MP::DiffusionProcess, p::Polynomial) = MP.f'*∂(p,MP.x) + 1/2*sum(∂²(p,MP.x,MP.x) .* MP.σ)
 inf_generator(MP::JumpDiffusionProcess, p::Polynomial) = inf_generator(MP.JumpProcess,p) + inf_generator(MP.DiffusionProcess,p)
-extended_inf_generator(MP::MarkovProcess, p::Polynomial, t::PolyVar) = ∂(p,t) + inf_generator(MP, p)
-louiville(MP, P, ξ, ϕ, t, Δt) = Mom(split_poly(ϕ, MP.x, Δt), P) - Mom(extended_inf_generator(MP, ϕ, t), ξ)
+extended_inf_generator(MP::MarkovProcess, p::Polynomial, t::PolyVar; scale = 1) = ∂(p,t) + scale*inf_generator(MP, p)
+louiville(MP, P, ξ, ϕ, t, Δt; scale = 1) = Mom(split_poly(ϕ, MP.x, Δt), P) - Mom(extended_inf_generator(MP, ϕ, t; scale=scale), ξ)
 function transform_state!(P::JumpProcess, x::AbstractVector, z::AbstractVector; iv::AbstractVector = 1:length(P.x))
     Π = [P.x[i] => z[i] for i in 1:length(P.x)]
     P.a = subs.(P.a, Π...)

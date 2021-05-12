@@ -231,10 +231,10 @@ function add_PathChanceConstraint!(gmp, cc, test_fxns, Δt, CP)
     ∂X = ∂(cc.X)
     Qₜ = @variable(gmp, [i in 1:nt], Meas(MP.x, support = cc.X)) # residence measure
     Rₜ = @variable(gmp, [k in 1:length(∂X), i in 1:nt],
-                        Meas([MP.x..., CP.u..., CP.t], support = intersect(∂X[k], @set(CP.t >= 0), @set(CP.t <= Δt[i])))) # exit measure
-    Sₜ = @variable(gmp, [i in 1:nt], Meas([MP.x..., CP.u..., CP.t], support = intersect(CP.ChanceConstraint.X, CP.U, @set(CP.t >= 0), @set(Δt[i] - CP.t >= 0))))
+                        Meas([MP.x..., CP.u..., CP.t], support = intersect(∂X[k], @set(CP.t >= 0), @set(1 - CP.t >= 0)))) # exit measure
+    Sₜ = @variable(gmp, [i in 1:nt], Meas([MP.x..., CP.u..., CP.t], support = intersect(CP.ChanceConstraint.X, CP.U, @set(CP.t >= 0), @set(1 - CP.t >= 0))))
     @constraint(gmp, [ϕ in test_fxns, i in 1:nt],
-                     louiville(MP,Qₜ[i],Sₜ[i],ϕ,CP.t,Δt[i]) + sum(Mom(ϕ, Rₜ[k,i]) for k in length(∂X)) ==
+                     louiville(MP,Qₜ[i],Sₜ[i],ϕ,CP.t,1,scale=Δt[i]) + sum(Mom(ϕ, Rₜ[k,i]) for k in length(∂X)) ==
                      (i == 1 ? split_poly(ϕ,MP.x,0)(x0...) : Mom(split_poly(ϕ, MP.x, 0), Qₜ[i-1])))
     @constraint(gmp, [1], Mom(1, Qₜ[nt]) >= 1 - cc.α)
     Tₜ = @variable(gmp, [i in 1:nt], Meas(MP.x, support = MP.X)) # slack measure
@@ -256,11 +256,11 @@ function control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange:
     gmp = GMPModel(solver)
     set_approximation_mode(gmp, PRIMAL_RELAXATION_MODE())
     test_fxns = polynomial.(monomials([MP.x..., CP.t], 0:order))
-    if typeof(CP.Objective) == LagrangeMayer ||  typeof(CP.Objective) == TerminalSetProbability
+    if typeof(CP.Objective) == LagrangeMayer || typeof(CP.Objective) == TerminalSetProbability
         @variable(gmp, Pₜ[i in 1:nt], Meas(MP.x, support = MP.X))
-        @variable(gmp, ξₜ[i in 1:nt], Meas([MP.x..., CP.u..., CP.t], support = intersect(MP.X, CP.U, @set(CP.t >= 0), @set(Δt[i] - CP.t >= 0))))
+        @variable(gmp, ξₜ[i in 1:nt], Meas([MP.x..., CP.u..., CP.t], support = intersect(MP.X, CP.U, @set(CP.t >= 0), @set(1 - CP.t >= 0))))
         @constraint(gmp, dynamics[ϕ in test_fxns, i in 1:nt],
-                         louiville(MP,Pₜ[i],ξₜ[i],ϕ,CP.t,Δt[i]) == (i == 1 ? split_poly(ϕ,MP.x,0)(x0...) : Mom(split_poly(ϕ, MP.x, 0), Pₜ[i-1])))
+                         louiville(MP,Pₜ[i],ξₜ[i],ϕ,CP.t,1,scale=Δt[i]) == (i == 1 ? split_poly(ϕ,MP.x,0)(x0...) : Mom(split_poly(ϕ, MP.x, 0), Pₜ[i-1])))
 
         if !isnothing(CP.PathChanceConstraints)
             for cc in CP.PathChanceConstraints
@@ -275,21 +275,22 @@ function control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange:
         end
 
         if typeof(CP.Objective) == LagrangeMayer
-            @objective(gmp, Min, sum(Mom(CP.Objective.l, gmp[:ξₜ][i]) for i in 1:nt) + Mom(CP.Objective.m, gmp[:Pₜ][end]))
+            @objective(gmp, Min, sum(Mom(Δt[i]*CP.Objective.l, gmp[:ξₜ][i]) for i in 1:nt) + Mom(CP.Objective.m, gmp[:Pₜ][end]))
         else
             Q = @variable(gmp, [nt], Meas(CP.Objective.l, support = CP.Objective.X))
             R = @variable(gmp, [nt], Meas(CP.MP, support = MP.X))
             @constraint(gmp, R[nt] + Q[nt] == Pₜ[nt])
             @objective(gmp, Max, Mom(1, Q[nt]))
         end
+
     elseif typeof(CP.Objective) == ExitProbability
         ∂X = ∂(CP.Objective.X)
         Qₜ = @variable(gmp, [i in 1:nt], Meas(MP.x, support = CP.Objective.X))
         Rₜ = @variable(gmp, [k in 1:length(∂X), i in 1:nt],
-                            Meas([MP.x..., CP.t], support = intersect(∂X[k], @set(CP.t >= 0), @set(CP.t <= Δt[i]))))
-        Sₜ = @variable(gmp, [i in 1:nt], Meas([MP.x..., CP.u..., CP.t], support = intersect(CP.Objective.X, CP.U, @set(CP.t >= 0), @set(CP.t <= Δt[i]))))
+                            Meas([MP.x..., CP.t], support = intersect(∂X[k], @set(CP.t >= 0), @set(1 - CP.t >= 0))))
+        Sₜ = @variable(gmp, [i in 1:nt], Meas([MP.x..., CP.u..., CP.t], support = intersect(CP.Objective.X, CP.U, @set(CP.t >= 0), @set(1 - CP.t >= 0))))
         @constraint(gmp, dynamics[ϕ in test_fxns, i in 1:nt],
-                         louiville(MP,Qₜ[i],Sₜ[i],ϕ,CP.t,Δt[i]) + sum(Mom(ϕ, Rₜ[k,i]) for k in length(∂X)) ==
+                         louiville(MP,Qₜ[i],Sₜ[i],ϕ,CP.t,1,scale=Δt[i]) + sum(Mom(ϕ, Rₜ[k,i]) for k in length(∂X)) ==
                          (i == 1 ? split_poly(ϕ,MP.x,0)(x0...) : Mom(split_poly(ϕ, MP.x, 0), Qₜ[i-1])))
         @objective(gmp, Max, Mom(1, Qₜ[nt]))
     end
@@ -301,7 +302,7 @@ function value_function_approximation(gmp, t, trange)
     for idx in keys(gmp[:dynamics])
         i, ϕ = idx[2], idx[1]
         t0 = (i > 1 ? trange[i-1] : 0)
-        V_pieces[i] += dual(gmp[:dynamics][idx])[1] * subs(ϕ, t => (t-t0))
+        V_pieces[i] += dual(gmp[:dynamics][idx])[1] * subs(ϕ, t => (t-t0)/(trange[i]-t0))
     end
     V = function (x,t)
             if t > trange[end] || t < 0

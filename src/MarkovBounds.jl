@@ -10,8 +10,6 @@ import Base: show
 import LinearAlgebra: qr, nullspace, diag, Diagonal
 import Parameters: @unpack
 
-
-
 export MarkovProcess, JumpProcess, ReactionProcess, DiffusionProcess,
        JumpDiffusionProcess, ControlProcess,
        Bounds,
