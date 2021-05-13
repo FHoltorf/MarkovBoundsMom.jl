@@ -19,7 +19,7 @@ export MarkovProcess, JumpProcess, ReactionProcess, DiffusionProcess,
        stationary_mean, transient_mean,
        stationary_variance, transient_variance,
        stationary_probability_mass,
-       optimal_control
+       optimal_controls
 
 
 include("processes.jl")
