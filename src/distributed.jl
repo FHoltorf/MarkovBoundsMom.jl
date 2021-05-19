@@ -7,7 +7,7 @@ struct Partition
     get_vertex
 end
 
-linearize_index(idx,rs) = idx[1] + sum((idx[i] - 1) * prod(rs[1:i-1]) for i in 2:length(idx))
+linearize_index(idx,rs) = idx[1] + (length(idx) > 1 ? sum((idx[i] - 1) * prod(rs[1:i-1]) for i in 2:length(idx)) : 0)
 
 function invert_index(idx, rs)
     inv_idx = similar(rs)
@@ -130,7 +130,7 @@ function grid_graph(x, x_ranges)
     return mg, get_vertex
 end
 
-function control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange::AbstractVector, p::Partition, solver)
+function control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange::AbstractVector, p::Partition, solver; moments = Dict())
     @assert typeof(CP.Objective) == LagrangeMayer
 
     MP = CP.MP
@@ -169,12 +169,12 @@ function control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange:
     for v in vertices(p.graph)
         @constraint(model, CP.Objective.m - subs(w[v,nₜ], CP.t => 1) >= 0, domain = props(p.graph, v)[:cell])
     end
-    @objective(model, Max, w[p.get_vertex(x0),1](x0..., 0))
+    @objective(model, Max, (isempty(moments) ? set_objective(w, x0, p) : set_objective(w, CP.t, moments, p)))
     return model
 end
 
-function optimal_control(CP::ControlProcess, x0::AbstractVector, order::Int, trange::AbstractVector, p::Partition, solver; value_function = false)
-    gmp = control_gmp(CP, x0, order, trange, p, solver)
+function optimal_control(CP::ControlProcess, x0::AbstractVector, order::Int, trange::AbstractVector, p::Partition, solver; moments=Dict(), value_function = false)
+    gmp = control_gmp(CP, x0, order, trange, p, solver, moments=moments)
     optimize!(gmp)
     lb, stat, time = extract_primal_solution(gmp)
     if value_function
@@ -200,7 +200,7 @@ function value_function_approximation(gmp, p::Partition, t, trange)
     return V
 end
 
-function inf_horizon_control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange::AbstractVector, p::Partition, solver; value_function = false)
+function inf_horizon_control_gmp(CP::ControlProcess, x0::AbstractVector, order::Int, trange::AbstractVector, p::Partition, solver; moments=Dict())
     @assert typeof(CP.Objective) == LagrangeMayer
     @assert CP.Objective.m == 0
 
@@ -261,12 +261,12 @@ function inf_horizon_control_gmp(CP::ControlProcess, x0::AbstractVector, order::
             @constraint(model, subs(w∞[e.src]-w∞[e.dst], MP.x[i] => val) == 0)
         end
     end
-    @objective(model, Max, w[p.get_vertex(x0),1](x0..., 0))
+    @objective(model, Max, isempty(moments) ? set_objective(w, x0, p) : set_objective(w, CP.t, moments, p))
     return model
 end
 
-function inf_horizon_control(CP::ControlProcess, x0::AbstractVector, order::Int, trange::AbstractVector, p::Partition, solver; value_function = false)
-    gmp = inf_horizon_control_gmp(CP, x0, order, trange, p, solver)
+function inf_horizon_control(CP::ControlProcess, x0::AbstractVector, order::Int, trange::AbstractVector, p::Partition, solver; moments=Dict(), value_function = false)
+    gmp = inf_horizon_control_gmp(CP, x0, order, trange, p, solver; moments=moments)
     optimize!(gmp)
     lb, stat, time = extract_primal_solution(gmp)
     if value_function
@@ -292,4 +292,19 @@ function value_function_approximation_inf_horizon(gmp, p::Partition, t, trange)
             return isnothing(i) ? (V_pieces[k,1], V_pieces[k,1](x...,t)) : (V_pieces[k,i+1], V_pieces[k,i+1](x...,t))
         end
     return V
+end
+
+function set_objective(w, t, moments::Dict, p)
+    obj = AffExpr(0.0)
+    for v in vertices(p.graph)
+        aux = subs(w[v,1], t => 0)
+        for i in 1:length(aux.a)
+            obj += aux.a[i]*moments[v, aux.x[i]]
+        end
+    end
+    return obj
+end
+
+function set_objective(w, x0::Vector, p)
+    return w[p.get_vertex(x0),1](x0..., 0)
 end
