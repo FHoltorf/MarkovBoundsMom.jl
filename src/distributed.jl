@@ -215,7 +215,7 @@ function inf_horizon_control_gmp(CP::ControlProcess, x0::AbstractVector, order::
 
     for v in vertices(p.graph), k in 1:nₜ
         X = intersect(props(p.graph, v)[:cell], @set(CP.t >= 0 && 1-CP.t >= 0), CP.U)
-        @constraint(model, extended_inf_generator(MP, w[v,k], CP.t; scale = Δt[k]) - 2*ρ*w[v,k] + Δt[k]*CP.Objective.l >= 0, domain = X)
+        @constraint(model, extended_inf_generator(MP, w[v,k], CP.t; scale = Δt[k]) - ρ*w[v,k] + Δt[k]*CP.Objective.l >= 0, domain = X)
     end
 
     for v in vertices(p.graph), k in 2:nₜ
@@ -241,7 +241,7 @@ function inf_horizon_control_gmp(CP::ControlProcess, x0::AbstractVector, order::
 
     for v in vertices(p.graph)
         X = intersect(props(p.graph, v)[:cell], @set(CP.t >= 0), CP.U)
-        @constraint(model, extended_inf_generator(MP, w∞[v], CP.t) - 2*ρ*w∞[v] + CP.Objective.l >= 0, domain = X)
+        @constraint(model, extended_inf_generator(MP, w∞[v], CP.t) - ρ*w∞[v] + CP.Objective.l >= 0, domain = X)
         @constraint(model, w∞[v] - subs(w[v,nₜ], CP.t => 1) >= 0, domain=props(p.graph, v)[:cell])
     end
 
