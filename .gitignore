@@ -1,4 +1,7 @@
-*.pdf
+*.jl.*.cov
+*.jl.cov
+*.jl.mem
+/docs/build/
 tests/
 src/todo.jl
 polished/
