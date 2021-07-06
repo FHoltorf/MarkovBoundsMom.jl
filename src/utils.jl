@@ -88,7 +88,7 @@ function build_approximate_model(model::GMPModel, ::MO.AbstractPrimalMode)
             # add measure constraints
             refmeas = moi_set(con)
             mons = monomials(maxdegree_basis(approx_basis(refmeas), variables(refmeas), approximation_degree(model)))
-            pcon[i] = @constraint amodel sum(c.*(MultivariateMoments.expectation.(mons, pvar[index(v)])) for (c, v) in jump_function(con)) .== integrate.(mons, refmeas)
+            pcon[i] = @constraint amodel sum(c.*(MM.expectation.(mons, pvar[index(v)])) for (c, v) in jump_function(con)) .== integrate.(mons, refmeas)
         end
     end
     return amodel, pvar
